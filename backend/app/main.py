@@ -83,12 +83,19 @@ def login(response: Response, form_data: schemas.UsuarioLogin, db: Session = Dep
             detail="Incorrect nickname or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    response.set_cookie(key="access_token", value=user.nickname, httponly=True)
+    response.set_cookie(
+        key="access_token",
+        value=user.nickname,
+        httponly=True,
+        secure=True,
+        samesite='lax',
+        path='/'
+    )
     return {"message": "Login successful", "is_admin": user.admin}
 
 @app.post("/logout")
 def logout(response: Response):
-    response.delete_cookie(key="access_token")
+    response.delete_cookie(key="access_token", secure=True, samesite='lax', path='/')
     return {"message": "Logout successful"}
 
 @app.get("/check-admin", response_model=bool)
