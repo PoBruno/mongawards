@@ -29,11 +29,9 @@ loginForm.addEventListener('submit', async (e) => {
     });
 
     if (response.ok) {
-        const data = await response.json();
-        localStorage.setItem('token', data.access_token);
-        window.location.href = '/dashboard.html';
+        window.location.href = '/dashboard';
     } else {
-        alert('Failed to login');
+        console.log('Failed to login');
     }
 });
 
@@ -52,10 +50,10 @@ registerForm.addEventListener('submit', async (e) => {
     });
 
     if (response.ok) {
-        alert('Registration successful! Please login.');
+        console.log('Registration successful! Please login.');
         showLogin.click();
     } else {
         const error = await response.json();
-        alert(`Registration failed: ${error.detail}`);
+        console.error(`Registration failed: ${error.detail}`);
     }
 });

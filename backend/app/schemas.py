@@ -25,6 +25,10 @@ class IndicadoBase(BaseModel):
 class IndicadoCreate(IndicadoBase):
     pass
 
+class IndicadoUpdate(IndicadoBase):
+    nome: Optional[str] = None
+    foto: Optional[str] = None
+
 class Indicado(IndicadoBase):
     id: int
 
@@ -38,6 +42,11 @@ class CategoriaBase(BaseModel):
 
 class CategoriaCreate(CategoriaBase):
     pass
+
+class CategoriaUpdate(CategoriaBase):
+    nome: Optional[str] = None
+    descricao: Optional[str] = None
+    banner: Optional[str] = None
 
 class CategoriaUpdateStatus(BaseModel):
     is_active: bool

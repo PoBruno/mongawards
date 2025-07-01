@@ -5,3 +5,6 @@ SQLAlchemy
 python-dotenv
 passlib
 python-multipart
+bcrypt==3.2.0
+Pillow
+cffi

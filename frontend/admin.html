@@ -3,90 +3,99 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Monga Awards - Admin</title>
+    <title>Monga Awards - Administração</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-100">
     <nav class="bg-gray-800 p-4">
         <div class="container mx-auto flex justify-between">
-            <a href="#" class="text-white text-lg font-bold" id="nav-results">Results</a>
-            <a href="#" class="text-white text-lg font-bold" id="nav-categories">Categories</a>
-            <a href="#" class="text-white text-lg font-bold" id="nav-nominees">Nominees</a>
-            <a href="#" class="text-white text-lg font-bold" id="nav-link-nominee">Link Nominee to Category</a>
+            <a href="#" class="text-white text-lg font-bold" id="nav-results">Resultados</a>
+            <a href="#" class="text-white text-lg font-bold" id="nav-categories">Categorias</a>
+            <a href="#" class="text-white text-lg font-bold" id="nav-nominees">Indicados</a>
+            <a href="#" class="text-white text-lg font-bold" id="nav-link-nominee">Vincular Indicado à Categoria</a>
         </div>
     </nav>
 
     <div class="container mx-auto mt-10 p-4">
-        <!-- Results Section -->
+        <!-- Resultados Section -->
         <section id="results-section" class="mb-8">
-            <h1 class="text-3xl font-bold mb-5">Results</h1>
+            <h1 class="text-3xl font-bold mb-5">Resultados</h1>
             <div id="results-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <!-- Results will be inserted here -->
+                <!-- Resultados serão inseridos aqui -->
             </div>
         </section>
 
-        <!-- Categories Section -->
+        <!-- Categorias Section -->
         <section id="categories-section" class="mb-8 hidden">
-            <h1 class="text-3xl font-bold mb-5">Manage Categories</h1>
+            <h1 class="text-3xl font-bold mb-5">Gerenciar Categorias</h1>
             <form id="create-category-form" class="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
-                <h2 class="text-2xl font-bold mb-4">Create New Category</h2>
+                <h2 class="text-2xl font-bold mb-4">Criar Nova Categoria</h2>
                 <div class="mb-4">
-                    <label class="block text-gray-700 text-sm font-bold mb-2" for="category-name">Name</label>
-                    <input class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700" id="category-name" type="text" placeholder="Category Name" required>
+                    <label class="block text-gray-700 text-sm font-bold mb-2" for="category-name">Nome</label>
+                    <input class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700" id="category-name" type="text" placeholder="Nome da Categoria" required>
                 </div>
                 <div class="mb-4">
-                    <label class="block text-gray-700 text-sm font-bold mb-2" for="category-description">Description</label>
-                    <textarea class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700" id="category-description" placeholder="Category Description"></textarea>
+                    <label class="block text-gray-700 text-sm font-bold mb-2" for="category-description">Descrição</label>
+                    <textarea class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700" id="category-description" placeholder="Descrição da Categoria"></textarea>
                 </div>
                 <div class="mb-4">
-                    <label class="block text-gray-700 text-sm font-bold mb-2" for="category-banner">Banner Image</label>
+                    <label class="block text-gray-700 text-sm font-bold mb-2" for="category-banner">Imagem do Banner</label>
                     <input class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700" id="category-banner" type="file" accept="image/*">
                 </div>
-                <button class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded" type="submit">Create Category</button>
+                <button class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded" type="submit">Criar Categoria</button>
             </form>
 
-            <h2 class="text-2xl font-bold mb-4">Existing Categories</h2>
+            <h2 class="text-2xl font-bold mb-4">Categorias Existentes</h2>
             <div id="existing-categories-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <!-- Existing categories will be loaded here -->
+                <!-- Categorias existentes serão carregadas aqui -->
             </div>
         </section>
 
-        <!-- Nominees Section -->
+        <!-- Indicados Section -->
         <section id="nominees-section" class="mb-8 hidden">
-            <h1 class="text-3xl font-bold mb-5">Manage Nominees</h1>
+            <h1 class="text-3xl font-bold mb-5">Gerenciar Indicados</h1>
             <form id="create-nominee-form" class="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
-                <h2 class="text-2xl font-bold mb-4">Create New Nominee</h2>
+                <h2 class="text-2xl font-bold mb-4">Criar Novo Indicado</h2>
                 <div class="mb-4">
-                    <label class="block text-gray-700 text-sm font-bold mb-2" for="nominee-name">Name</label>
-                    <input class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700" id="nominee-name" type="text" placeholder="Nominee Name" required>
+                    <label class="block text-gray-700 text-sm font-bold mb-2" for="nominee-name">Nome</label>
+                    <input class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700" id="nominee-name" type="text" placeholder="Nome do Indicado" required>
                 </div>
                 <div class="mb-4">
-                    <label class="block text-gray-700 text-sm font-bold mb-2" for="nominee-photo">Photo</label>
+                    <label class="block text-gray-700 text-sm font-bold mb-2" for="nominee-photo">Foto</label>
                     <input class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700" id="nominee-photo" type="file" accept="image/*">
                 </div>
-                <button class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded" type="submit">Create Nominee</button>
+                <button class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded" type="submit">Criar Indicado</button>
             </form>
 
-            <h2 class="text-2xl font-bold mb-4">Existing Nominees</h2>
+            <h2 class="text-2xl font-bold mb-4">Indicados Existentes</h2>
             <div id="existing-nominees-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <!-- Existing nominees will be loaded here -->
+                <!-- Indicados existentes serão carregados aqui -->
             </div>
         </section>
 
-        <!-- Link Nominee to Category Section -->
+        <!-- Vincular Indicado à Categoria Section -->
         <section id="link-nominee-section" class="mb-8 hidden">
-            <h1 class="text-3xl font-bold mb-5">Link Nominee to Category</h1>
+            <h1 class="text-3xl font-bold mb-5">Vincular Indicado à Categoria</h1>
             <form id="link-nominee-form" class="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
                 <div class="mb-4">
-                    <label class="block text-gray-700 text-sm font-bold mb-2" for="link-nominee-id">Nominee ID</label>
-                    <input class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700" id="link-nominee-id" type="number" placeholder="Nominee ID" required>
+                    <label class="block text-gray-700 text-sm font-bold mb-2" for="link-nominee-id">Indicado</label>
+                    <select class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700" id="link-nominee-id" required>
+                        <option value="">Selecione um Indicado</option>
+                    </select>
                 </div>
                 <div class="mb-4">
-                    <label class="block text-gray-700 text-sm font-bold mb-2" for="link-category-id">Category ID</label>
-                    <input class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700" id="link-category-id" type="number" placeholder="Category ID" required>
+                    <label class="block text-gray-700 text-sm font-bold mb-2" for="link-category-id">Categoria</label>
+                    <select class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700" id="link-category-id" required>
+                        <option value="">Selecione uma Categoria</option>
+                    </select>
                 </div>
-                <button class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded" type="submit">Link Nominee</button>
+                <button class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded" type="submit">Vincular Indicado</button>
             </form>
+
+            <h2 class="text-2xl font-bold mb-4">Vínculos Existentes</h2>
+            <div id="existing-links-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- Vínculos existentes serão carregados aqui -->
+            </div>
         </section>
     </div>
 

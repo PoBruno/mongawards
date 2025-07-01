@@ -1,17 +1,28 @@
-version: '3.8'
 services:
   db:
     image: postgres:13
     container_name: monga-awards-db
     restart: always
-    environment:
-      POSTGRES_USER: mongauser
-      POSTGRES_PASSWORD: mongapassword
-      POSTGRES_DB: monga_awards
+    env_file:
+      - ./.env
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+
+  web:
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    container_name: monga-awards-web
+    restart: always
+    env_file:
+      - ./.env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    command: ./wait-for-db.sh db uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 volumes:
   postgres_data:

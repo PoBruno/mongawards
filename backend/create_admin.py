@@ -1,6 +1,11 @@
 from sqlalchemy.orm import Session
 from app.database import SessionLocal, engine
 from app import models, crud
+from dotenv import load_dotenv
+import os
+import sys
+
+load_dotenv()
 
 # Create database tables
 models.Base.metadata.create_all(bind=engine)
@@ -8,8 +13,12 @@ models.Base.metadata.create_all(bind=engine)
 def create_admin_user():
     db: Session = SessionLocal()
     try:
-        admin_nickname = "mongadmin"
-        admin_password = "Monga@@2023!"
+        admin_nickname = os.getenv("ADMIN_NICKNAME")
+        admin_password = os.getenv("ADMIN_PASSWORD")
+
+        if not admin_nickname or not admin_password:
+            print("Error: ADMIN_NICKNAME and ADMIN_PASSWORD environment variables must be set.", file=sys.stderr)
+            sys.exit(1)
 
         db_admin = crud.get_user_by_nickname(db, nickname=admin_nickname)
         if not db_admin:

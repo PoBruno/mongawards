@@ -1,11 +1,14 @@
-from fastapi import Depends, FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import Depends, FastAPI, HTTPException, UploadFile, File, Form, Response, Cookie
 from typing import Optional
 from sqlalchemy.orm import Session
 import os
 from fastapi.staticfiles import StaticFiles
-from fastapi.security import OAuth2PasswordBearer
 import shutil
 from starlette.responses import FileResponse
+
+from PIL import Image
+from io import BytesIO
+from uuid import uuid4
 
 from . import crud, models, schemas
 from .database import SessionLocal, engine
@@ -14,7 +17,22 @@ models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+# Helper function to save and process images
+async def save_image_file(upload_file: UploadFile, upload_dir: str, max_size: tuple = (800, 600)) -> str:
+    os.makedirs(upload_dir, exist_ok=True)
+    file_extension = upload_file.filename.split(".")[-1].lower()
+    unique_filename = f"{uuid4()}.webp"
+    file_path = os.path.join(upload_dir, unique_filename)
+
+    # Read image into PIL and convert to WebP
+    image_data = await upload_file.read()
+    img = Image.open(BytesIO(image_data))
+    img.thumbnail(max_size, Image.LANCZOS) # Resize while maintaining aspect ratio
+
+    # Save as WebP
+    img.save(file_path, "webp")
+
+    return f"/static/{os.path.basename(upload_dir)}/{unique_filename}"
 
 # Dependency
 def get_db():
@@ -24,8 +42,14 @@ def get_db():
     finally:
         db.close()
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    user = crud.get_user_by_nickname(db, nickname=token)
+def get_current_user(access_token: Optional[str] = Cookie(None), db: Session = Depends(get_db)):
+    if access_token is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    user = crud.get_user_by_nickname(db, nickname=access_token)
     if user is None:
         raise HTTPException(
             status_code=401,
@@ -50,7 +74,7 @@ def create_user(user: schemas.UsuarioCreate, db: Session = Depends(get_db)):
 
 
 @app.post("/token")
-def login(form_data: schemas.UsuarioLogin, db: Session = Depends(get_db)):
+def login(response: Response, form_data: schemas.UsuarioLogin, db: Session = Depends(get_db)):
     user = crud.get_user_by_nickname(db, nickname=form_data.nickname)
     if not user or not crud.pwd_context.verify(form_data.password, user.password):
         raise HTTPException(
@@ -58,8 +82,17 @@ def login(form_data: schemas.UsuarioLogin, db: Session = Depends(get_db)):
             detail="Incorrect nickname or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return {"access_token": user.nickname, "token_type": "bearer"}
+    response.set_cookie(key="access_token", value=user.nickname, httponly=True)
+    return {"message": "Login successful", "is_admin": user.admin}
 
+@app.post("/logout")
+def logout(response: Response):
+    response.delete_cookie(key="access_token")
+    return {"message": "Logout successful"}
+
+@app.get("/check-admin", response_model=bool)
+def check_admin(current_user: schemas.Usuario = Depends(get_current_user)):
+    return current_user.admin
 
 @app.get("/categorias/", response_model=list[schemas.Categoria])
 def read_categorias(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: schemas.Usuario = Depends(get_current_user)):
@@ -70,8 +103,15 @@ def read_categorias(skip: int = 0, limit: int = 100, db: Session = Depends(get_d
     return categorias
 
 
+@app.get("/categorias/{categoria_id}", response_model=schemas.Categoria)
+def get_categoria(categoria_id: int, db: Session = Depends(get_db)):
+    db_categoria = crud.get_categoria_by_id(db, categoria_id)
+    if db_categoria is None:
+        raise HTTPException(status_code=404, detail="Category not found")
+    return db_categoria
+
 @app.post("/categorias/", response_model=schemas.Categoria)
-def create_categoria(
+async def create_categoria(
     nome: str = Form(...),
     descricao: str = Form(...),
     banner: Optional[UploadFile] = File(None),
@@ -80,14 +120,38 @@ def create_categoria(
 ):
     banner_path = None
     if banner:
-        upload_dir = "../frontend/static/banners"
-        os.makedirs(upload_dir, exist_ok=True)
-        file_location = os.path.join(upload_dir, banner.filename)
-        with open(file_location, "wb+") as file_object:
-            shutil.copyfileobj(banner.file, file_object)
-        banner_path = f"/static/banners/{banner.filename}"
+        banner_path = await save_image_file(banner, "frontend/static/banners")
     categoria_create = schemas.CategoriaCreate(nome=nome, descricao=descricao, banner=banner_path)
     return crud.create_categoria(db=db, categoria=categoria_create, banner_path=banner_path)
+
+@app.put("/categorias/{categoria_id}", response_model=schemas.Categoria)
+async def update_categoria(
+    categoria_id: int,
+    nome: Optional[str] = Form(None),
+    descricao: Optional[str] = Form(None),
+    banner: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+    current_user: schemas.Usuario = Depends(get_current_admin_user)
+):
+    banner_path = None
+    if banner:
+        banner_path = await save_image_file(banner, "frontend/static/banners")
+    categoria_update = schemas.CategoriaUpdate(nome=nome, descricao=descricao, banner=banner_path)
+    db_categoria = crud.update_categoria(db, categoria_id, categoria_update, banner_path)
+    if db_categoria is None:
+        raise HTTPException(status_code=404, detail="Category not found")
+    return db_categoria
+
+@app.delete("/categorias/{categoria_id}")
+def delete_categoria(
+    categoria_id: int,
+    db: Session = Depends(get_db),
+    current_user: schemas.Usuario = Depends(get_current_admin_user)
+):
+    db_categoria = crud.delete_categoria(db, categoria_id)
+    if db_categoria is None:
+        raise HTTPException(status_code=404, detail="Category not found")
+    return {"message": "Category deleted successfully"}
 
 
 @app.put("/categorias/{categoria_id}/status", response_model=schemas.Categoria)
@@ -109,8 +173,15 @@ def read_indicados(skip: int = 0, limit: int = 100, db: Session = Depends(get_db
     return indicados
 
 
+@app.get("/indicados/{indicado_id}", response_model=schemas.Indicado)
+def get_indicado(indicado_id: int, db: Session = Depends(get_db)):
+    db_indicado = crud.get_indicado_by_id(db, indicado_id)
+    if db_indicado is None:
+        raise HTTPException(status_code=404, detail="Nominee not found")
+    return db_indicado
+
 @app.post("/indicados/", response_model=schemas.Indicado)
-def create_indicado(
+async def create_indicado(
     nome: str = Form(...),
     foto: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
@@ -118,14 +189,37 @@ def create_indicado(
 ):
     foto_path = None
     if foto:
-        upload_dir = "../frontend/static/fotos"
-        os.makedirs(upload_dir, exist_ok=True)
-        file_location = os.path.join(upload_dir, foto.filename)
-        with open(file_location, "wb+") as file_object:
-            shutil.copyfileobj(foto.file, file_object)
-        foto_path = f"/static/fotos/{foto.filename}"
+        foto_path = await save_image_file(foto, "frontend/static/fotos")
     indicado_create = schemas.IndicadoCreate(nome=nome, foto=foto_path)
     return crud.create_indicado(db=db, indicado=indicado_create, foto_path=foto_path)
+
+@app.put("/indicados/{indicado_id}", response_model=schemas.Indicado)
+async def update_indicado(
+    indicado_id: int,
+    nome: Optional[str] = Form(None),
+    foto: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+    current_user: schemas.Usuario = Depends(get_current_admin_user)
+):
+    foto_path = None
+    if foto:
+        foto_path = await save_image_file(foto, "frontend/static/fotos")
+    indicado_update = schemas.IndicadoUpdate(nome=nome, foto=foto_path)
+    db_indicado = crud.update_indicado(db, indicado_id, indicado_update, foto_path)
+    if db_indicado is None:
+        raise HTTPException(status_code=404, detail="Nominee not found")
+    return db_indicado
+
+@app.delete("/indicados/{indicado_id}")
+def delete_indicado(
+    indicado_id: int,
+    db: Session = Depends(get_db),
+    current_user: schemas.Usuario = Depends(get_current_admin_user)
+):
+    db_indicado = crud.delete_indicado(db, indicado_id)
+    if db_indicado is None:
+        raise HTTPException(status_code=404, detail="Nominee not found")
+    return {"message": "Nominee deleted successfully"}
 
 
 @app.post("/indicados_categorias/", response_model=schemas.IndicadosCategoria)
@@ -135,6 +229,17 @@ def create_indicado_categoria(
     current_user: schemas.Usuario = Depends(get_current_admin_user)
 ):
     return crud.create_indicado_categoria(db=db, indicado_categoria=indicado_categoria)
+
+@app.delete("/indicados_categorias/{indicado_categoria_id}")
+def delete_indicado_categoria(
+    indicado_categoria_id: int,
+    db: Session = Depends(get_db),
+    current_user: schemas.Usuario = Depends(get_current_admin_user)
+):
+    db_indicado_categoria = crud.delete_indicado_categoria(db, indicado_categoria_id)
+    if db_indicado_categoria is None:
+        raise HTTPException(status_code=404, detail="Nominee-Category link not found")
+    return {"message": "Nominee-Category link deleted successfully"}
 
 
 @app.post("/votar/")
@@ -151,19 +256,24 @@ def get_results(db: Session = Depends(get_db), current_user: schemas.Usuario = D
 
 @app.get("/")
 async def read_index():
-    return FileResponse("../frontend/index.html")
+    return FileResponse("frontend/index.html")
 
-@app.get("/dashboard.html")
+@app.get("/dashboard")
 async def read_dashboard():
-    return FileResponse("../frontend/dashboard.html")
+    return FileResponse("frontend/dashboard.html")
 
-@app.get("/admin.html")
-async def read_admin():
-    return FileResponse("../frontend/admin.html")
+@app.get("/admin")
+async def read_admin(current_user: schemas.Usuario = Depends(get_current_admin_user)):
+    return FileResponse("frontend/admin.html")
 
 @app.get("/indicados_categorias/", response_model=list[schemas.IndicadosCategoria])
 def read_indicados_categorias(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     indicados_categorias = crud.get_indicados_categorias(db, skip=skip, limit=limit)
     return indicados_categorias
 
-app.mount("/static", StaticFiles(directory="../frontend/static"), name="static")
+@app.get("/votos_usuario/", response_model=list[int])
+def get_user_voted_categories(current_user: schemas.Usuario = Depends(get_current_user), db: Session = Depends(get_db)):
+    voted_categories = crud.get_user_voted_categories(db, current_user.id)
+    return [cat_id for cat_id, in voted_categories]
+
+app.mount("/static", StaticFiles(directory="frontend/static"), name="static")
