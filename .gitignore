@@ -1,6 +1,6 @@
 frontend/static/banners/*
 frontend/static/fotos/*
-/frontend/static/banners/*
-/frontend/static/fotos/*
+/frontend/static/banners
+/frontend/static/fotos
 .env
 /.env
