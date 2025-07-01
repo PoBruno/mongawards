@@ -24,5 +24,13 @@ services:
       - db
     command: ./wait-for-db.sh db uvicorn app.main:app --host 0.0.0.0 --port 8000
 
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: monga-cloudflared
+    restart: always
+    env_file:
+      - ./.env
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TOKEN}
+
 volumes:
   postgres_data:

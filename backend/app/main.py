@@ -266,6 +266,10 @@ def get_results(db: Session = Depends(get_db), current_user: schemas.Usuario = D
 async def read_index():
     return FileResponse("frontend/index.html")
 
+@app.get("/index.html")
+async def read_index_html():
+    return FileResponse("frontend/index.html")
+
 @app.get("/dashboard")
 async def read_dashboard():
     return FileResponse("frontend/dashboard.html")

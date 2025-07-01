@@ -72,7 +72,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const response = await fetch(url, options);
 
         if (response.status === 401) {
-            window.location.href = '/'; // Redirect to login if not authenticated
+            window.location.href = '/index.html'; // Redirect to login if not authenticated
             throw new Error('Not authenticated');
         }
 
