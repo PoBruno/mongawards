@@ -5,6 +5,7 @@ import os
 from fastapi.staticfiles import StaticFiles
 import shutil
 from starlette.responses import FileResponse
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from PIL import Image
 from io import BytesIO
@@ -14,6 +15,8 @@ from . import crud, models, schemas
 from .database import SessionLocal, engine
 
 app = FastAPI()
+
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 # Helper function to save and process images
 async def save_image_file(upload_file: UploadFile, upload_dir: str, max_size: tuple = (800, 600)) -> str:
