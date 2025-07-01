@@ -195,18 +195,6 @@ export default function AuthForm() {
               </form>
             </TabsContent>
           </Tabs>
-
-          <div className="dark-card p-4 rounded-lg">
-            <p className="font-medium text-blue-400 flex items-center gap-2 mb-2">
-              <Info className="h-4 w-4" />
-              Informações Importantes
-            </p>
-            <div className="text-sm text-slate-400 space-y-1">
-              <p>• Para votar, você precisa de um código de acesso válido</p>
-              <p>• Entre em contato com a organização para obter seu código</p>
-              <p>• Cada código pode ser usado apenas uma vez</p>
-            </div>
-          </div>
         </CardContent>
       </Card>
     </div>
