@@ -240,7 +240,7 @@ export default function Dashboard() {
                         <p className="text-slate-400">Nenhum indicado nesta categoria ainda.</p>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         {categoryNominees.map((nominee) => (
                           <Card key={nominee.id} className="dark-card hover-lift">
                             <CardContent className="p-4">
@@ -251,13 +251,13 @@ export default function Dashboard() {
                                     alt={nominee.name}
                                     width={200}
                                     height={200}
-                                    className="w-full h-32 object-cover rounded-lg"
+                                    className="w-full aspect-square object-cover rounded-lg"
                                   />
                                 </div>
                               )}
-                              <h4 className="font-semibold text-white mb-2">{nominee.name}</h4>
+                              <h4 className="font-semibold text-white mb-2 text-sm">{nominee.name}</h4>
                               {nominee.description && (
-                                <p className="text-sm text-slate-400 mb-3">{nominee.description}</p>
+                                <p className="text-xs text-slate-400 mb-3 line-clamp-2">{nominee.description}</p>
                               )}
                               <div className="flex items-center justify-between">
                                 {category.voting_open && !userHasVoted ? (
