@@ -6,7 +6,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Trophy, Crown, Medal, Award, ArrowLeft, TrendingUp, Users, BarChart3, Eye, Vote } from "lucide-react"
-import { supabase, type Category, type Nominee, type User, type NomineeCategory } from "@/lib/supabase"
+import {
+  supabase,
+  type Category,
+  type Nominee,
+  type User,
+  type NomineeCategory,
+  type IndividualVote,
+  type NomineeWithVotes,
+} from "@/lib/supabase"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
 
@@ -17,6 +25,7 @@ export default function ResultsPage() {
   const [openCategories, setOpenCategories] = useState<Category[]>([])
   const [nominees, setNominees] = useState<Nominee[]>([])
   const [nomineeCategories, setNomineeCategories] = useState<NomineeCategory[]>([])
+  const [individualVotes, setIndividualVotes] = useState<IndividualVote[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("overview")
   const router = useRouter()
@@ -64,7 +73,7 @@ export default function ResultsPage() {
         .from("nominees")
         .select("*")
         .eq("is_active", true)
-        .order("vote_count", { ascending: false })
+        .order("created_at")
 
       if (nomError) {
         console.error("Error loading nominees:", nomError)
@@ -85,6 +94,19 @@ export default function ResultsPage() {
       } else {
         setNomineeCategories(associationsData || [])
       }
+
+      // Load individual votes
+      const { data: votesData, error: votesError } = await supabase
+        .from("individual_votes")
+        .select("*")
+        .order("created_at")
+
+      if (votesError) {
+        console.error("Error loading individual votes:", votesError)
+        setIndividualVotes([])
+      } else {
+        setIndividualVotes(votesData || [])
+      }
     } catch (error) {
       console.error("Error loading data:", error)
     } finally {
@@ -92,17 +114,31 @@ export default function ResultsPage() {
     }
   }
 
-  const getCategoryNominees = (categoryId: string) => {
+  const getCategoryNominees = (categoryId: string): NomineeWithVotes[] => {
     const associatedNominees = nomineeCategories
       .filter((nc) => nc.category_id === categoryId)
-      .map((nc) => nominees.find((n) => n.id === nc.nominee_id))
-      .filter(Boolean) as Nominee[]
+      .map((nc) => {
+        const nominee = nominees.find((n) => n.id === nc.nominee_id)
+        if (!nominee) return null
 
-    return associatedNominees.sort((a, b) => b.vote_count - a.vote_count)
+        // Count votes for this nominee in this specific category
+        const categoryVotes = individualVotes.filter(
+          (vote) => vote.nominee_id === nominee.id && vote.category_id === categoryId,
+        ).length
+
+        return {
+          ...nominee,
+          category_votes: categoryVotes,
+        } as NomineeWithVotes
+      })
+      .filter(Boolean) as NomineeWithVotes[]
+
+    // Sort by votes in this category (descending)
+    return associatedNominees.sort((a, b) => b.category_votes - a.category_votes)
   }
 
   const getTotalVotes = () => {
-    return nominees.reduce((total, nominee) => total + nominee.vote_count, 0)
+    return individualVotes.length
   }
 
   const getPositionIcon = (position: number) => {
@@ -141,7 +177,7 @@ export default function ResultsPage() {
       <div className="space-y-6">
         {categories.map((category) => {
           const categoryNominees = getCategoryNominees(category.id)
-          const totalCategoryVotes = categoryNominees.reduce((sum, nominee) => sum + nominee.vote_count, 0)
+          const totalCategoryVotes = categoryNominees.reduce((sum, nominee) => sum + nominee.category_votes, 0)
 
           return (
             <Card key={category.id} className="dark-card hover-lift">
@@ -182,7 +218,8 @@ export default function ResultsPage() {
                   <div className="space-y-3">
                     {categoryNominees.map((nominee, index) => {
                       const position = index + 1
-                      const percentage = totalCategoryVotes > 0 ? (nominee.vote_count / totalCategoryVotes) * 100 : 0
+                      const percentage =
+                        totalCategoryVotes > 0 ? (nominee.category_votes / totalCategoryVotes) * 100 : 0
                       const isWinner = position === 1 && !category.voting_open
 
                       return (
@@ -246,7 +283,7 @@ export default function ResultsPage() {
                                 <div className="flex items-center gap-4">
                                   <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">
                                     <Vote className="h-3 w-3 mr-1" />
-                                    {nominee.vote_count} votos ({percentage.toFixed(1)}%)
+                                    {nominee.category_votes} votos ({percentage.toFixed(1)}%)
                                   </Badge>
                                   <div className="flex-1 bg-slate-700 rounded-full h-2">
                                     <div

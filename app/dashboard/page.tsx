@@ -108,23 +108,23 @@ export default function Dashboard() {
         return
       }
 
-      // Record user vote (to prevent multiple votes)
+      // Record individual vote (new system)
+      const { error: individualVoteError } = await supabase.from("individual_votes").insert([
+        {
+          user_id: user.id,
+          nominee_id: nomineeId,
+          category_id: categoryId,
+        },
+      ])
+
+      if (individualVoteError) throw individualVoteError
+
+      // Record user vote (to prevent multiple votes in same category)
       const { error: voteError } = await supabase
         .from("user_votes")
         .insert([{ user_id: user.id, category_id: categoryId }])
 
       if (voteError) throw voteError
-
-      // Increment nominee vote count
-      const nominee = nominees.find((n) => n.id === nomineeId)
-      if (nominee) {
-        const { error: updateError } = await supabase
-          .from("nominees")
-          .update({ vote_count: nominee.vote_count + 1 })
-          .eq("id", nomineeId)
-
-        if (updateError) throw updateError
-      }
 
       // Reload data
       await loadData(user.id)
@@ -240,10 +240,10 @@ export default function Dashboard() {
                         <p className="text-slate-400">Nenhum indicado nesta categoria ainda.</p>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="grid grid-cols-5 gap-2 sm:gap-3 md:gap-4">
                         {categoryNominees.map((nominee) => (
                           <Card key={nominee.id} className="dark-card hover-lift">
-                            <CardContent className="p-4">
+                            <CardContent className="p-2 sm:p-3 md:p-4">
                               {nominee.image && (
                                 <div className="mb-3">
                                   <Image
@@ -255,9 +255,9 @@ export default function Dashboard() {
                                   />
                                 </div>
                               )}
-                              <h4 className="font-semibold text-white mb-2 text-sm">{nominee.name}</h4>
+                              <h4 className="font-semibold text-white mb-2 text-xs">{nominee.name}</h4>
                               {nominee.description && (
-                                <p className="text-xs text-slate-400 mb-3 line-clamp-2">{nominee.description}</p>
+                                <p className="text-[10px] text-slate-400 mb-3 line-clamp-2">{nominee.description}</p>
                               )}
                               <div className="flex items-center justify-between">
                                 {category.voting_open && !userHasVoted ? (
@@ -265,7 +265,7 @@ export default function Dashboard() {
                                     onClick={() => handleVote(category.id, nominee.id)}
                                     disabled={votingLoading === nominee.id}
                                     size="sm"
-                                    className="btn-primary w-full"
+                                    className="btn-primary w-full text-xs"
                                   >
                                     {votingLoading === nominee.id ? (
                                       <div className="flex items-center gap-2">
