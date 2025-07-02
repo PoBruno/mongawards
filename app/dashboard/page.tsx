@@ -95,8 +95,31 @@ export default function Dashboard() {
     }
   }
 
+  const testDatabaseConnection = async () => {
+    try {
+      console.log("Testing database connection...")
+
+      // Test if individual_votes table exists
+      const { data: testData, error: testError } = await supabase.from("individual_votes").select("id").limit(1)
+
+      if (testError) {
+        console.error("individual_votes table test failed:", testError)
+        return false
+      }
+
+      console.log("Database connection test successful")
+      return true
+    } catch (error) {
+      console.error("Database connection test failed:", error)
+      return false
+    }
+  }
+
   const handleVote = async (categoryId: string, nomineeId: string) => {
-    if (!user) return
+    if (!user) {
+      alert("Usuário não encontrado. Faça login novamente.")
+      return
+    }
 
     setVotingLoading(nomineeId)
 
@@ -108,23 +131,65 @@ export default function Dashboard() {
         return
       }
 
-      // Record individual vote (new system)
-      const { error: individualVoteError } = await supabase.from("individual_votes").insert([
-        {
-          user_id: user.id,
-          nominee_id: nomineeId,
-          category_id: categoryId,
-        },
-      ])
+      // Test database connection first
+      const dbConnected = await testDatabaseConnection()
+      if (!dbConnected) {
+        alert("Erro de conexão com o banco de dados. Execute o script SQL 008-fix-voting-permissions.sql")
+        return
+      }
 
-      if (individualVoteError) throw individualVoteError
+      console.log("Attempting to vote:", {
+        user_id: user.id,
+        nominee_id: nomineeId,
+        category_id: categoryId,
+        user_type: typeof user.id,
+        nominee_type: typeof nomineeId,
+        category_type: typeof categoryId,
+      })
+
+      // Record individual vote (new system)
+      const { data: individualVoteData, error: individualVoteError } = await supabase
+        .from("individual_votes")
+        .insert([
+          {
+            user_id: user.id,
+            nominee_id: nomineeId,
+            category_id: categoryId,
+          },
+        ])
+        .select()
+
+      if (individualVoteError) {
+        console.error("Individual vote error details:", {
+          error: individualVoteError,
+          code: individualVoteError.code,
+          message: individualVoteError.message,
+          details: individualVoteError.details,
+          hint: individualVoteError.hint,
+        })
+        throw new Error(`Erro ao registrar voto individual: ${individualVoteError.message}`)
+      }
+
+      console.log("Individual vote successful:", individualVoteData)
 
       // Record user vote (to prevent multiple votes in same category)
-      const { error: voteError } = await supabase
+      const { data: userVoteData, error: voteError } = await supabase
         .from("user_votes")
         .insert([{ user_id: user.id, category_id: categoryId }])
+        .select()
 
-      if (voteError) throw voteError
+      if (voteError) {
+        console.error("User vote error details:", {
+          error: voteError,
+          code: voteError.code,
+          message: voteError.message,
+          details: voteError.details,
+          hint: voteError.hint,
+        })
+        throw new Error(`Erro ao registrar controle de voto: ${voteError.message}`)
+      }
+
+      console.log("User vote successful:", userVoteData)
 
       // Reload data
       await loadData(user.id)
@@ -132,7 +197,27 @@ export default function Dashboard() {
       alert("Voto registrado com sucesso!")
     } catch (error) {
       console.error("Error voting:", error)
-      alert("Erro ao registrar voto. Tente novamente.")
+
+      // More detailed error message
+      let errorMessage = "Erro desconhecido"
+
+      if (error instanceof Error) {
+        errorMessage = error.message
+      } else if (error?.message) {
+        errorMessage = error.message
+      } else if (error?.code) {
+        errorMessage = `Código de erro: ${error.code}`
+      }
+
+      if (errorMessage.includes("relation") && errorMessage.includes("does not exist")) {
+        alert("Erro: Tabela de votação não encontrada. Execute o script SQL 008-fix-voting-permissions.sql primeiro.")
+      } else if (errorMessage.includes("permission denied") || errorMessage.includes("RLS")) {
+        alert("Erro: Permissões insuficientes. Execute o script SQL 008-fix-voting-permissions.sql para corrigir.")
+      } else if (errorMessage.includes("duplicate key")) {
+        alert("Você já votou nesta categoria!")
+      } else {
+        alert(`Erro ao registrar voto: ${errorMessage}`)
+      }
     } finally {
       setVotingLoading(null)
     }
