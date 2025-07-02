@@ -35,7 +35,11 @@ export type Category = {
   description: string
   banner_image?: string
   is_active: boolean
-  voting_open: boolean
+  voting_open: boolean // Legacy field for compatibility
+  voting_phase: number // 1 or 2
+  phase_1_active: boolean
+  phase_2_active: boolean
+  is_finalized: boolean
   created_at: string
 }
 
@@ -45,7 +49,7 @@ export type Nominee = {
   description: string
   image?: string
   is_active: boolean
-  vote_count: number
+  vote_count: number // Legacy field for compatibility
   created_at: string
 }
 
@@ -64,6 +68,33 @@ export type IndividualVote = {
   created_at: string
 }
 
+export type Phase1Vote = {
+  id: string
+  user_id: string
+  nominee_id: string
+  category_id: string
+  created_at: string
+}
+
+export type Phase2Vote = {
+  id: string
+  user_id: string
+  nominee_id: string
+  category_id: string
+  created_at: string
+}
+
+export type UserVotingProgress = {
+  id: string
+  user_id: string
+  category_id: string
+  phase: number
+  votes_cast: number
+  max_votes: number
+  created_at: string
+  updated_at: string
+}
+
 export type NomineeCategory = {
   id: string
   nominee_id: string
@@ -80,5 +111,12 @@ export type CategoryWithNominees = Category & {
 }
 
 export type NomineeWithVotes = Nominee & {
-  category_votes: number // Votes for this nominee in a specific category
+  phase_1_votes: number
+  phase_2_votes: number
+}
+
+export type PhaseResult = {
+  nominee_id: string
+  nominee_name: string
+  vote_count: number
 }

@@ -4,8 +4,15 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Trophy, Vote, LogOut, Award, Users } from "lucide-react"
-import { supabase, type Category, type Nominee, type User, type UserVote, type NomineeCategory } from "@/lib/supabase"
+import { Trophy, Vote, LogOut, Award, Users, Star, CheckCircle2 } from "lucide-react"
+import {
+  supabase,
+  type Category,
+  type Nominee,
+  type User,
+  type NomineeCategory,
+  type UserVotingProgress,
+} from "@/lib/supabase"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
 
@@ -14,7 +21,7 @@ export default function Dashboard() {
   const [categories, setCategories] = useState<Category[]>([])
   const [nominees, setNominees] = useState<Nominee[]>([])
   const [nomineeCategories, setNomineeCategories] = useState<NomineeCategory[]>([])
-  const [userVotes, setUserVotes] = useState<UserVote[]>([])
+  const [userProgress, setUserProgress] = useState<UserVotingProgress[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [votingLoading, setVotingLoading] = useState<string | null>(null)
   const router = useRouter()
@@ -61,7 +68,7 @@ export default function Dashboard() {
         setNominees(nomineesData || [])
       }
 
-      // Load nominee-category associations
+      // Load nominee-category associations (only needed for phase 2)
       const { data: associationsData, error: assocError } = await supabase
         .from("nominee_categories")
         .select("*")
@@ -74,18 +81,18 @@ export default function Dashboard() {
         setNomineeCategories(associationsData || [])
       }
 
-      // Load user votes (skip if admin)
+      // Load user voting progress
       if (userId !== "admin-env-id") {
-        const { data: votesData, error: voteError } = await supabase
-          .from("user_votes")
+        const { data: progressData, error: progressError } = await supabase
+          .from("user_voting_progress")
           .select("*")
           .eq("user_id", userId)
 
-        if (voteError) {
-          console.error("Error loading votes:", voteError)
-          setUserVotes([])
+        if (progressError) {
+          console.error("Error loading progress:", progressError)
+          setUserProgress([])
         } else {
-          setUserVotes(votesData || [])
+          setUserProgress(progressData || [])
         }
       }
     } catch (error) {
@@ -95,27 +102,7 @@ export default function Dashboard() {
     }
   }
 
-  const testDatabaseConnection = async () => {
-    try {
-      console.log("Testing database connection...")
-
-      // Test if individual_votes table exists
-      const { data: testData, error: testError } = await supabase.from("individual_votes").select("id").limit(1)
-
-      if (testError) {
-        console.error("individual_votes table test failed:", testError)
-        return false
-      }
-
-      console.log("Database connection test successful")
-      return true
-    } catch (error) {
-      console.error("Database connection test failed:", error)
-      return false
-    }
-  }
-
-  const handleVote = async (categoryId: string, nomineeId: string) => {
+  const handlePhase1Vote = async (categoryId: string, nomineeId: string) => {
     if (!user) {
       alert("Usuário não encontrado. Faça login novamente.")
       return
@@ -124,72 +111,131 @@ export default function Dashboard() {
     setVotingLoading(nomineeId)
 
     try {
-      // Check if user already voted in this category
-      const hasVoted = userVotes.some((vote) => vote.category_id === categoryId)
-      if (hasVoted) {
+      // Check current progress
+      const currentProgress = userProgress.find((p) => p.category_id === categoryId && p.phase === 1)
+
+      if (currentProgress && currentProgress.votes_cast >= 2) {
+        alert("Você já indicou 2 pessoas nesta categoria!")
+        return
+      }
+
+      // Check if user already voted for this specific nominee in this category
+      const { data: existingVote, error: checkError } = await supabase
+        .from("phase_1_votes")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("category_id", categoryId)
+        .eq("nominee_id", nomineeId)
+        .single()
+
+      if (checkError && checkError.code !== "PGRST116") {
+        throw checkError
+      }
+
+      if (existingVote) {
+        alert("Você já indicou esta pessoa nesta categoria!")
+        return
+      }
+
+      // Record the vote
+      const { error: voteError } = await supabase.from("phase_1_votes").insert([
+        {
+          user_id: user.id,
+          nominee_id: nomineeId,
+          category_id: categoryId,
+        },
+      ])
+
+      if (voteError) throw voteError
+
+      // Update or create progress
+      const newVotesCount = (currentProgress?.votes_cast || 0) + 1
+
+      if (currentProgress) {
+        const { error: updateError } = await supabase
+          .from("user_voting_progress")
+          .update({
+            votes_cast: newVotesCount,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", currentProgress.id)
+
+        if (updateError) throw updateError
+      } else {
+        const { error: insertError } = await supabase.from("user_voting_progress").insert([
+          {
+            user_id: user.id,
+            category_id: categoryId,
+            phase: 1,
+            votes_cast: 1,
+            max_votes: 2,
+          },
+        ])
+
+        if (insertError) throw insertError
+      }
+
+      // Reload data
+      await loadData(user.id)
+
+      alert(`Indicação registrada! (${newVotesCount}/2 para esta categoria)`)
+    } catch (error) {
+      console.error("Error voting:", error)
+      alert("Erro ao registrar indicação. Tente novamente.")
+    } finally {
+      setVotingLoading(null)
+    }
+  }
+
+  const handlePhase2Vote = async (categoryId: string, nomineeId: string) => {
+    if (!user) {
+      alert("Usuário não encontrado. Faça login novamente.")
+      return
+    }
+
+    setVotingLoading(nomineeId)
+
+    try {
+      // Check if user already voted in phase 2 for this category
+      const { data: existingVote, error: checkError } = await supabase
+        .from("phase_2_votes")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("category_id", categoryId)
+        .single()
+
+      if (checkError && checkError.code !== "PGRST116") {
+        throw checkError
+      }
+
+      if (existingVote) {
         alert("Você já votou nesta categoria!")
         return
       }
 
-      // Test database connection first
-      const dbConnected = await testDatabaseConnection()
-      if (!dbConnected) {
-        alert("Erro de conexão com o banco de dados. Execute o script SQL 008-fix-voting-permissions.sql")
-        return
-      }
+      // Record the vote
+      const { error: voteError } = await supabase.from("phase_2_votes").insert([
+        {
+          user_id: user.id,
+          nominee_id: nomineeId,
+          category_id: categoryId,
+        },
+      ])
 
-      console.log("Attempting to vote:", {
-        user_id: user.id,
-        nominee_id: nomineeId,
-        category_id: categoryId,
-        user_type: typeof user.id,
-        nominee_type: typeof nomineeId,
-        category_type: typeof categoryId,
-      })
+      if (voteError) throw voteError
 
-      // Record individual vote (new system)
-      const { data: individualVoteData, error: individualVoteError } = await supabase
-        .from("individual_votes")
-        .insert([
-          {
-            user_id: user.id,
-            nominee_id: nomineeId,
-            category_id: categoryId,
-          },
-        ])
-        .select()
+      // Update progress
+      const { error: progressError } = await supabase.from("user_voting_progress").upsert([
+        {
+          user_id: user.id,
+          category_id: categoryId,
+          phase: 2,
+          votes_cast: 1,
+          max_votes: 1,
+        },
+      ])
 
-      if (individualVoteError) {
-        console.error("Individual vote error details:", {
-          error: individualVoteError,
-          code: individualVoteError.code,
-          message: individualVoteError.message,
-          details: individualVoteError.details,
-          hint: individualVoteError.hint,
-        })
-        throw new Error(`Erro ao registrar voto individual: ${individualVoteError.message}`)
-      }
-
-      console.log("Individual vote successful:", individualVoteData)
-
-      // Record user vote (to prevent multiple votes in same category)
-      const { data: userVoteData, error: voteError } = await supabase
-        .from("user_votes")
-        .insert([{ user_id: user.id, category_id: categoryId }])
-        .select()
-
-      if (voteError) {
-        console.error("User vote error details:", {
-          error: voteError,
-          code: voteError.code,
-          message: voteError.message,
-          details: voteError.details,
-          hint: voteError.hint,
-        })
-        throw new Error(`Erro ao registrar controle de voto: ${voteError.message}`)
-      }
-
-      console.log("User vote successful:", userVoteData)
+      if (progressError) throw progressError
 
       // Reload data
       await loadData(user.id)
@@ -197,27 +243,7 @@ export default function Dashboard() {
       alert("Voto registrado com sucesso!")
     } catch (error) {
       console.error("Error voting:", error)
-
-      // More detailed error message
-      let errorMessage = "Erro desconhecido"
-
-      if (error instanceof Error) {
-        errorMessage = error.message
-      } else if (error?.message) {
-        errorMessage = error.message
-      } else if (error?.code) {
-        errorMessage = `Código de erro: ${error.code}`
-      }
-
-      if (errorMessage.includes("relation") && errorMessage.includes("does not exist")) {
-        alert("Erro: Tabela de votação não encontrada. Execute o script SQL 008-fix-voting-permissions.sql primeiro.")
-      } else if (errorMessage.includes("permission denied") || errorMessage.includes("RLS")) {
-        alert("Erro: Permissões insuficientes. Execute o script SQL 008-fix-voting-permissions.sql para corrigir.")
-      } else if (errorMessage.includes("duplicate key")) {
-        alert("Você já votou nesta categoria!")
-      } else {
-        alert(`Erro ao registrar voto: ${errorMessage}`)
-      }
+      alert("Erro ao registrar voto. Tente novamente.")
     } finally {
       setVotingLoading(null)
     }
@@ -228,17 +254,52 @@ export default function Dashboard() {
     router.push("/")
   }
 
-  const getCategoryNominees = (categoryId: string) => {
-    const associatedNominees = nomineeCategories
-      .filter((nc) => nc.category_id === categoryId)
-      .map((nc) => nominees.find((n) => n.id === nc.nominee_id))
-      .filter(Boolean) as Nominee[]
-
-    return associatedNominees
+  const getCategoryNominees = (categoryId: string, phase: number) => {
+    if (phase === 1) {
+      // Phase 1: All nominees are available
+      return nominees
+    } else {
+      // Phase 2: Only linked nominees
+      const associatedNominees = nomineeCategories
+        .filter((nc) => nc.category_id === categoryId)
+        .map((nc) => nominees.find((n) => n.id === nc.nominee_id))
+        .filter(Boolean) as Nominee[]
+      return associatedNominees
+    }
   }
 
-  const hasUserVoted = (categoryId: string) => {
-    return userVotes.some((vote) => vote.category_id === categoryId)
+  const getUserProgress = (categoryId: string, phase: number) => {
+    return userProgress.find((p) => p.category_id === categoryId && p.phase === phase)
+  }
+
+  const hasUserVotedForNominee = (categoryId: string, nomineeId: string, phase: number) => {
+    // This would need to be checked via additional state or API call
+    // For now, we'll rely on the progress tracking
+    return false
+  }
+
+  const getPhaseTitle = (category: Category) => {
+    if (category.phase_1_active) {
+      return "🗳️ Fase 1 - Indicação"
+    } else if (category.phase_2_active) {
+      return "🏆 Fase 2 - Votação Final"
+    } else if (category.is_finalized) {
+      return "✅ Finalizada"
+    } else {
+      return "⏳ Aguardando"
+    }
+  }
+
+  const getPhaseDescription = (category: Category) => {
+    if (category.phase_1_active) {
+      return "Indique 2 pessoas para esta categoria"
+    } else if (category.phase_2_active) {
+      return "Vote no seu favorito"
+    } else if (category.is_finalized) {
+      return "Votação encerrada"
+    } else {
+      return "Votação ainda não iniciada"
+    }
   }
 
   if (isLoading) {
@@ -275,8 +336,10 @@ export default function Dashboard() {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
         <div className="text-center mb-8">
-          <h2 className="text-4xl font-bold text-white mb-2">🏆 Votação Aberta 🏆</h2>
-          <p className="text-slate-400 text-lg">Vote nos seus favoritos em cada categoria</p>
+          <h2 className="text-4xl font-bold text-white mb-2">🏆 Sistema de Votação em Duas Fases 🏆</h2>
+          <p className="text-slate-400 text-lg">
+            <strong>Fase 1:</strong> Indique 2 pessoas por categoria | <strong>Fase 2:</strong> Vote no seu favorito
+          </p>
         </div>
 
         {categories.length === 0 ? (
@@ -290,8 +353,29 @@ export default function Dashboard() {
         ) : (
           <div className="space-y-8">
             {categories.map((category) => {
-              const categoryNominees = getCategoryNominees(category.id)
-              const userHasVoted = hasUserVoted(category.id)
+              const isPhase1Active = category.phase_1_active
+              const isPhase2Active = category.phase_2_active
+              const currentPhase = isPhase1Active ? 1 : isPhase2Active ? 2 : 0
+              const categoryNominees = getCategoryNominees(category.id, currentPhase)
+              const progress = getUserProgress(category.id, currentPhase)
+
+              if (!isPhase1Active && !isPhase2Active) {
+                return (
+                  <Card key={category.id} className="dark-card">
+                    <CardHeader className="text-center">
+                      <CardTitle className="text-xl text-white flex items-center justify-center gap-2">
+                        {category.name}
+                        <Badge className="bg-gray-500/20 text-gray-400">
+                          {category.is_finalized ? "Finalizada" : "Aguardando"}
+                        </Badge>
+                      </CardTitle>
+                      <CardDescription className="text-slate-400">
+                        {category.is_finalized ? "Votação encerrada" : "Votação ainda não iniciada"}
+                      </CardDescription>
+                    </CardHeader>
+                  </Card>
+                )
+              }
 
               return (
                 <Card key={category.id} className="dark-card hover-lift">
@@ -309,70 +393,111 @@ export default function Dashboard() {
                     )}
                     <CardTitle className="text-2xl text-white flex items-center justify-center gap-2 flex-wrap">
                       {category.name}
-                      {userHasVoted && <Badge className="status-voted">✓ Votado</Badge>}
-                      {!category.voting_open && <Badge className="status-closed">Votação Fechada</Badge>}
-                      {category.voting_open && !userHasVoted && <Badge className="status-open">Aberta</Badge>}
+                      <Badge
+                        className={isPhase1Active ? "bg-blue-500/20 text-blue-400" : "bg-green-500/20 text-green-400"}
+                      >
+                        {getPhaseTitle(category)}
+                      </Badge>
+                      {progress && (
+                        <Badge className="status-voted">
+                          {progress.votes_cast}/{progress.max_votes} votos
+                        </Badge>
+                      )}
                     </CardTitle>
                     {category.description && (
                       <CardDescription className="text-slate-400">{category.description}</CardDescription>
                     )}
+                    <CardDescription className="text-slate-300 font-medium">
+                      {getPhaseDescription(category)}
+                    </CardDescription>
                   </CardHeader>
 
                   <CardContent>
                     {categoryNominees.length === 0 ? (
                       <div className="text-center py-8">
                         <Users className="h-12 w-12 text-slate-400 mx-auto mb-2" />
-                        <p className="text-slate-400">Nenhum indicado nesta categoria ainda.</p>
+                        <p className="text-slate-400">
+                          {isPhase2Active ? "Nenhum finalista selecionado ainda." : "Nenhum indicado disponível."}
+                        </p>
                       </div>
                     ) : (
                       <div className="grid grid-cols-5 gap-2 sm:gap-3 md:gap-4">
-                        {categoryNominees.map((nominee) => (
-                          <Card key={nominee.id} className="dark-card hover-lift">
-                            <CardContent className="p-2 sm:p-3 md:p-4">
-                              {nominee.image && (
-                                <div className="mb-3">
-                                  <Image
-                                    src={nominee.image || "/placeholder.svg"}
-                                    alt={nominee.name}
-                                    width={200}
-                                    height={200}
-                                    className="w-full aspect-square object-cover rounded-lg"
-                                  />
-                                </div>
-                              )}
-                              <h4 className="font-semibold text-white mb-2 text-xs">{nominee.name}</h4>
-                              {nominee.description && (
-                                <p className="text-[10px] text-slate-400 mb-3 line-clamp-2">{nominee.description}</p>
-                              )}
-                              <div className="flex items-center justify-between">
-                                {category.voting_open && !userHasVoted ? (
-                                  <Button
-                                    onClick={() => handleVote(category.id, nominee.id)}
-                                    disabled={votingLoading === nominee.id}
-                                    size="sm"
-                                    className="btn-primary w-full text-xs"
-                                  >
-                                    {votingLoading === nominee.id ? (
-                                      <div className="flex items-center gap-2">
-                                        <div className="w-4 h-4 spinner"></div>
-                                        Votando...
-                                      </div>
-                                    ) : (
-                                      <>
-                                        <Vote className="h-4 w-4 mr-1" />
-                                        Votar
-                                      </>
-                                    )}
-                                  </Button>
-                                ) : userHasVoted ? (
-                                  <Badge className="status-voted w-full justify-center py-2">Você já votou</Badge>
-                                ) : (
-                                  <Badge className="status-closed w-full justify-center py-2">Votação fechada</Badge>
+                        {categoryNominees.map((nominee) => {
+                          const canVote = isPhase1Active
+                            ? !progress || progress.votes_cast < 2
+                            : !progress || progress.votes_cast < 1
+
+                          return (
+                            <Card key={nominee.id} className="dark-card hover-lift">
+                              <CardContent className="p-2 sm:p-3 md:p-4">
+                                {nominee.image && (
+                                  <div className="mb-3">
+                                    <Image
+                                      src={nominee.image || "/placeholder.svg"}
+                                      alt={nominee.name}
+                                      width={200}
+                                      height={200}
+                                      className="w-full aspect-square object-cover rounded-lg"
+                                    />
+                                  </div>
                                 )}
-                              </div>
-                            </CardContent>
-                          </Card>
-                        ))}
+                                <h4 className="font-semibold text-white mb-2 text-xs">{nominee.name}</h4>
+                                {nominee.description && (
+                                  <p className="text-[10px] text-slate-400 mb-3 line-clamp-2">{nominee.description}</p>
+                                )}
+                                <div className="flex items-center justify-between">
+                                  {canVote ? (
+                                    <Button
+                                      onClick={() =>
+                                        isPhase1Active
+                                          ? handlePhase1Vote(category.id, nominee.id)
+                                          : handlePhase2Vote(category.id, nominee.id)
+                                      }
+                                      disabled={votingLoading === nominee.id}
+                                      size="sm"
+                                      className="btn-primary w-full text-xs"
+                                    >
+                                      {votingLoading === nominee.id ? (
+                                        <div className="flex items-center gap-2">
+                                          <div className="w-4 h-4 spinner"></div>
+                                          {isPhase1Active ? "Indicando..." : "Votando..."}
+                                        </div>
+                                      ) : (
+                                        <>
+                                          {isPhase1Active ? (
+                                            <>
+                                              <Star className="h-4 w-4 mr-1" />
+                                              Indicar
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Vote className="h-4 w-4 mr-1" />
+                                              Votar
+                                            </>
+                                          )}
+                                        </>
+                                      )}
+                                    </Button>
+                                  ) : (
+                                    <Badge className="status-voted w-full justify-center py-2">
+                                      {isPhase1Active ? (
+                                        <>
+                                          <CheckCircle2 className="h-3 w-3 mr-1" />
+                                          Indicações completas
+                                        </>
+                                      ) : (
+                                        <>
+                                          <CheckCircle2 className="h-3 w-3 mr-1" />
+                                          Você já votou
+                                        </>
+                                      )}
+                                    </Badge>
+                                  )}
+                                </div>
+                              </CardContent>
+                            </Card>
+                          )
+                        })}
                       </div>
                     )}
                   </CardContent>

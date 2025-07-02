@@ -13,12 +13,34 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Trophy, Plus, Edit, Trash2, Users, BarChart3, LogOut, Star, Award, Link2, TrendingUp, Key } from "lucide-react"
+import {
+  Trophy,
+  Plus,
+  Edit,
+  Trash2,
+  Users,
+  BarChart3,
+  LogOut,
+  Star,
+  Award,
+  Link2,
+  TrendingUp,
+  Key,
+  Crown,
+  Medal,
+} from "lucide-react"
 import { supabase, type Category, type Nominee, type User, type NomineeCategory } from "@/lib/supabase"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
 import ImageUpload from "@/components/image-upload"
 import { deleteImageClient } from "@/lib/blob-client"
+
+type Phase1Result = {
+  nominee_id: string
+  nominee_name: string
+  nominee_image?: string
+  vote_count: number
+}
 
 export default function AdminPanel() {
   const [user, setUser] = useState<User | null>(null)
@@ -37,6 +59,10 @@ export default function AdminPanel() {
     banner_image: "",
     is_active: true,
     voting_open: false,
+    voting_phase: 1,
+    phase_1_active: false,
+    phase_2_active: false,
+    is_finalized: false,
   })
 
   const [nomineeForm, setNomineeForm] = useState({
@@ -53,8 +79,11 @@ export default function AdminPanel() {
   })
 
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [dialogType, setDialogType] = useState<"category" | "nominee" | "association">("category")
+  const [dialogType, setDialogType] = useState<"category" | "nominee" | "association" | "phase1-results">("category")
   const [editingId, setEditingId] = useState<string | null>(null)
+
+  const [phaseResults, setPhaseResults] = useState<Phase1Result[]>([])
+  const [selectedCategoryForResults, setSelectedCategoryForResults] = useState<Category | null>(null)
 
   useEffect(() => {
     const userData = localStorage.getItem("user")
@@ -130,6 +159,10 @@ export default function AdminPanel() {
       banner_image: "",
       is_active: true,
       voting_open: false,
+      voting_phase: 1,
+      phase_1_active: false,
+      phase_2_active: false,
+      is_finalized: false,
     })
     setEditingId(null)
   }
@@ -162,6 +195,10 @@ export default function AdminPanel() {
         banner_image: category.banner_image ?? "",
         is_active: category.is_active,
         voting_open: category.voting_open,
+        voting_phase: category.voting_phase ?? 1,
+        phase_1_active: category.phase_1_active ?? false,
+        phase_2_active: category.phase_2_active ?? false,
+        is_finalized: category.is_finalized ?? false,
       })
       setEditingId(category.id)
     } else {
@@ -220,6 +257,10 @@ export default function AdminPanel() {
             banner_image: categoryForm.banner_image,
             is_active: categoryForm.is_active,
             voting_open: categoryForm.voting_open,
+            voting_phase: categoryForm.voting_phase,
+            phase_1_active: categoryForm.phase_1_active,
+            phase_2_active: categoryForm.phase_2_active,
+            is_finalized: categoryForm.is_finalized,
           })
           .eq("id", editingId)
 
@@ -233,6 +274,10 @@ export default function AdminPanel() {
             banner_image: categoryForm.banner_image,
             is_active: categoryForm.is_active,
             voting_open: categoryForm.voting_open,
+            voting_phase: categoryForm.voting_phase,
+            phase_1_active: categoryForm.phase_1_active,
+            phase_2_active: categoryForm.phase_2_active,
+            is_finalized: categoryForm.is_finalized,
           },
         ])
 
@@ -384,20 +429,6 @@ export default function AdminPanel() {
     }
   }
 
-  const toggleCategoryVoting = async (id: string, currentState: boolean) => {
-    try {
-      const { error } = await supabase.from("categories").update({ voting_open: !currentState }).eq("id", id)
-
-      if (error) throw error
-
-      loadData()
-      alert(`Votação ${!currentState ? "aberta" : "fechada"}!`)
-    } catch (error) {
-      console.error("Error toggling voting:", error)
-      alert("Erro ao alterar status da votação")
-    }
-  }
-
   const getCategoryNominees = (categoryId: string) => {
     const associatedNominees = nomineeCategories
       .filter((nc) => nc.category_id === categoryId)
@@ -431,6 +462,175 @@ export default function AdminPanel() {
         ...associationForm,
         category_ids: associationForm.category_ids.filter((id) => id !== categoryId),
       })
+    }
+  }
+
+  const loadPhase1Results = async (category: Category) => {
+    try {
+      // Direct query for phase 1 results
+      const { data, error } = await supabase
+        .from("nominees")
+        .select(`
+          id,
+          name,
+          image,
+          phase_1_votes!left(id)
+        `)
+        .eq("is_active", true)
+        .eq("phase_1_votes.category_id", category.id)
+
+      if (error) {
+        console.error("Error loading phase 1 results:", error)
+        throw error
+      }
+
+      // Process the results to count votes
+      const results: Phase1Result[] = (data || []).map((nominee: any) => ({
+        nominee_id: nominee.id,
+        nominee_name: nominee.name,
+        nominee_image: nominee.image,
+        vote_count: nominee.phase_1_votes?.length || 0,
+      }))
+
+      // Sort by vote count descending
+      results.sort((a, b) => b.vote_count - a.vote_count)
+
+      setPhaseResults(results)
+      setSelectedCategoryForResults(category)
+      setDialogType("phase1-results")
+      setIsDialogOpen(true)
+    } catch (error) {
+      console.error("Error loading phase 1 results:", error)
+      alert("Erro ao carregar resultados da Fase 1")
+    }
+  }
+
+  const selectFinalists = async (selectedNominees: string[]) => {
+    if (!selectedCategoryForResults) return
+
+    try {
+      // Remove existing associations for this category
+      const { error: deleteError } = await supabase
+        .from("nominee_categories")
+        .delete()
+        .eq("category_id", selectedCategoryForResults.id)
+
+      if (deleteError) throw deleteError
+
+      // Add selected nominees as finalists
+      if (selectedNominees.length > 0) {
+        const associations = selectedNominees.map((nomineeId) => ({
+          nominee_id: nomineeId,
+          category_id: selectedCategoryForResults.id,
+        }))
+
+        const { error: insertError } = await supabase.from("nominee_categories").insert(associations)
+
+        if (insertError) throw insertError
+      }
+
+      setIsDialogOpen(false)
+      loadData()
+      alert(`${selectedNominees.length} finalistas selecionados! Agora você pode iniciar a Fase 2.`)
+    } catch (error) {
+      console.error("Error selecting finalists:", error)
+      alert("Erro ao selecionar finalistas")
+    }
+  }
+
+  const startPhase1 = async (categoryId: string) => {
+    try {
+      const { error } = await supabase
+        .from("categories")
+        .update({
+          voting_phase: 1,
+          phase_1_active: true,
+          phase_2_active: false,
+          is_finalized: false,
+        })
+        .eq("id", categoryId)
+
+      if (error) throw error
+
+      loadData()
+      alert("Fase 1 (Indicação) iniciada!")
+    } catch (error) {
+      console.error("Error starting phase 1:", error)
+      alert("Erro ao iniciar Fase 1")
+    }
+  }
+
+  const finishPhase1 = async (categoryId: string) => {
+    if (
+      !confirm("Tem certeza que deseja finalizar a Fase 1? Você poderá ver os resultados e selecionar os finalistas.")
+    ) {
+      return
+    }
+
+    try {
+      const { error } = await supabase
+        .from("categories")
+        .update({
+          phase_1_active: false,
+        })
+        .eq("id", categoryId)
+
+      if (error) throw error
+
+      // Show phase 1 results
+      const category = categories.find((c) => c.id === categoryId)
+      if (category) {
+        await loadPhase1Results(category)
+      }
+      loadData()
+    } catch (error) {
+      console.error("Error finishing phase 1:", error)
+      alert("Erro ao finalizar Fase 1")
+    }
+  }
+
+  const startPhase2 = async (categoryId: string) => {
+    try {
+      const { error } = await supabase
+        .from("categories")
+        .update({
+          voting_phase: 2,
+          phase_2_active: true,
+          phase_1_active: false,
+        })
+        .eq("id", categoryId)
+
+      if (error) throw error
+
+      loadData()
+      alert("Fase 2 (Votação Final) iniciada!")
+    } catch (error) {
+      console.error("Error starting phase 2:", error)
+      alert("Erro ao iniciar Fase 2")
+    }
+  }
+
+  const finishPhase2 = async (categoryId: string) => {
+    if (!confirm("Tem certeza que deseja finalizar esta categoria? Isso encerrará definitivamente a votação.")) {
+      return
+    }
+
+    try {
+      const { error } = await supabase
+        .from("categories")
+        .update({
+          phase_2_active: false,
+          is_finalized: true,
+        })
+        .eq("id", categoryId)
+
+      if (error) throw error
+
+      loadData()
+      alert("Categoria finalizada!")
+    } catch (error) {
+      console.error("Error finishing phase 2:", error)
+      alert("Erro ao finalizar categoria")
     }
   }
 
@@ -505,8 +705,10 @@ export default function AdminPanel() {
           <Card className="dark-card">
             <CardContent className="p-4 text-center">
               <Star className="h-8 w-8 text-yellow-400 mx-auto mb-2" />
-              <div className="text-2xl font-bold text-white">{categories.filter((c) => c.voting_open).length}</div>
-              <div className="text-sm text-slate-400">Votações Abertas</div>
+              <div className="text-2xl font-bold text-white">
+                {categories.filter((c) => c.phase_1_active || c.phase_2_active).length}
+              </div>
+              <div className="text-sm text-slate-400">Votações Ativas</div>
             </CardContent>
           </Card>
         </div>
@@ -535,61 +737,100 @@ export default function AdminPanel() {
             </div>
 
             <div className="grid gap-4">
-              {categories.map((category) => (
-                <Card key={category.id} className="dark-card hover-lift">
-                  <CardHeader>
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <CardTitle className="flex items-center gap-2 flex-wrap text-white">
-                          {category.name}
-                          <Badge className={category.is_active ? "status-open" : "bg-gray-500/20 text-gray-400"}>
-                            {category.is_active ? "Ativa" : "Inativa"}
-                          </Badge>
-                          <Badge className={category.voting_open ? "status-open" : "status-closed"}>
-                            {category.voting_open ? "Votação Aberta" : "Votação Fechada"}
-                          </Badge>
-                        </CardTitle>
-                        {category.description && (
-                          <CardDescription className="text-slate-400">{category.description}</CardDescription>
-                        )}
+              {categories.map((category) => {
+                const categoryNominees = getCategoryNominees(category.id)
+                const getPhaseStatus = () => {
+                  if (category.is_finalized) return { text: "Finalizada", color: "bg-gray-500/20 text-gray-400" }
+                  if (category.phase_2_active) return { text: "Fase 2 Ativa", color: "bg-green-500/20 text-green-400" }
+                  if (category.phase_1_active) return { text: "Fase 1 Ativa", color: "bg-blue-500/20 text-blue-400" }
+                  return { text: "Aguardando", color: "bg-yellow-500/20 text-yellow-400" }
+                }
+                const phaseStatus = getPhaseStatus()
+
+                return (
+                  <Card key={category.id} className="dark-card hover-lift">
+                    <CardHeader>
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <CardTitle className="flex items-center gap-2 flex-wrap text-white">
+                            {category.name}
+                            <Badge className={category.is_active ? "status-open" : "bg-gray-500/20 text-gray-400"}>
+                              {category.is_active ? "Ativa" : "Inativa"}
+                            </Badge>
+                            <Badge className={phaseStatus.color}>{phaseStatus.text}</Badge>
+                          </CardTitle>
+                          {category.description && (
+                            <CardDescription className="text-slate-400">{category.description}</CardDescription>
+                          )}
+                        </div>
+                        <div className="flex items-center space-x-2 flex-wrap">
+                          {!category.phase_1_active && !category.phase_2_active && !category.is_finalized && (
+                            <Button onClick={() => startPhase1(category.id)} size="sm" className="btn-primary">
+                              Iniciar Fase 1
+                            </Button>
+                          )}
+
+                          {category.phase_1_active && (
+                            <>
+                              <Button onClick={() => finishPhase1(category.id)} size="sm" className="btn-secondary">
+                                Finalizar Fase 1
+                              </Button>
+                              <Button onClick={() => loadPhase1Results(category)} size="sm" className="btn-secondary">
+                                Ver Resultados
+                              </Button>
+                            </>
+                          )}
+
+                          {!category.phase_1_active &&
+                            !category.phase_2_active &&
+                            !category.is_finalized &&
+                            categoryNominees.length > 0 && (
+                              <Button onClick={() => startPhase2(category.id)} size="sm" className="btn-primary">
+                                Iniciar Fase 2
+                              </Button>
+                            )}
+
+                          {category.phase_2_active && (
+                            <Button onClick={() => finishPhase2(category.id)} size="sm" className="btn-secondary">
+                              Finalizar Votação
+                            </Button>
+                          )}
+
+                          <Button onClick={() => openCategoryDialog(category)} size="sm" className="btn-secondary">
+                            <Edit className="h-4 w-4" />
+                          </Button>
+
+                          <Button
+                            onClick={() => handleDeleteCategory(category.id)}
+                            size="sm"
+                            className="btn-secondary text-red-400 hover:text-red-300"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <Button
-                          onClick={() => toggleCategoryVoting(category.id, category.voting_open)}
-                          size="sm"
-                          className="btn-secondary"
-                        >
-                          {category.voting_open ? "Fechar" : "Abrir"}
-                        </Button>
-                        <Button onClick={() => openCategoryDialog(category)} size="sm" className="btn-secondary">
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          onClick={() => handleDeleteCategory(category.id)}
-                          size="sm"
-                          className="btn-secondary text-red-400 hover:text-red-300"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                    </CardHeader>
+                    <CardContent>
+                      {category.banner_image && (
+                        <div className="mb-4">
+                          <Image
+                            src={category.banner_image || "/placeholder.svg"}
+                            alt={category.name}
+                            width={400}
+                            height={100}
+                            className="w-full h-20 object-cover rounded"
+                          />
+                        </div>
+                      )}
+                      <div className="text-sm text-slate-400">
+                        {category.phase_2_active || category.is_finalized
+                          ? `${categoryNominees.length} finalistas`
+                          : `${nominees.length} indicados disponíveis para Fase 1`}
                       </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    {category.banner_image && (
-                      <div className="mb-4">
-                        <Image
-                          src={category.banner_image || "/placeholder.svg"}
-                          alt={category.name}
-                          width={400}
-                          height={100}
-                          className="w-full h-20 object-cover rounded"
-                        />
-                      </div>
-                    )}
-                    <div className="text-sm text-slate-400">{getCategoryNominees(category.id).length} indicados</div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                )
+              })}
             </div>
           </TabsContent>
 
@@ -635,12 +876,12 @@ export default function AdminPanel() {
                                   key={category.id}
                                   className="bg-blue-500/20 text-blue-400 border-blue-500/30 text-xs"
                                 >
-                                  {category.name}
+                                  {category.name} (Finalista)
                                 </Badge>
                               ))}
                             </div>
                             <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30">
-                              {nominee.vote_count} votos
+                              {nominee.vote_count} votos (legacy)
                             </Badge>
                           </div>
                         </div>
@@ -669,8 +910,8 @@ export default function AdminPanel() {
 
           <TabsContent value="associations" className="space-y-4">
             <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-bold text-white">Associar Indicados a Categorias</h2>
-              <p className="text-slate-400">Clique no botão de link para associar indicados a múltiplas categorias</p>
+              <h2 className="text-2xl font-bold text-white">Finalistas por Categoria</h2>
+              <p className="text-slate-400">Gerencie os finalistas da Fase 2</p>
             </div>
 
             <div className="grid gap-4">
@@ -704,7 +945,7 @@ export default function AdminPanel() {
                                 ))
                               ) : (
                                 <Badge className="bg-gray-500/20 text-gray-400 border-gray-500/30 text-xs">
-                                  Nenhuma categoria associada
+                                  Não é finalista em nenhuma categoria
                                 </Badge>
                               )}
                             </div>
@@ -712,7 +953,7 @@ export default function AdminPanel() {
                         </div>
                         <Button onClick={() => openAssociationDialog(nominee)} className="btn-primary" size="sm">
                           <Link2 className="h-4 w-4 mr-2" />
-                          Associar
+                          Gerenciar
                         </Button>
                       </div>
                     </CardContent>
@@ -724,24 +965,39 @@ export default function AdminPanel() {
         </Tabs>
       </div>
 
-      {/* Dialog for Category/Nominee/Association Forms */}
+      {/* Dialog for Category/Nominee/Association/Phase1Results Forms */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-lg dark-card border-slate-600 max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl dark-card border-slate-600 max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-white">
-              {editingId ? "Editar" : "Nova"}{" "}
-              {dialogType === "category" ? "Categoria" : dialogType === "nominee" ? "Indicado" : "Associação"}
+              {dialogType === "phase1-results" ? "Resultados da Fase 1" : editingId ? "Editar" : "Nova"}{" "}
+              {dialogType === "category"
+                ? "Categoria"
+                : dialogType === "nominee"
+                  ? "Indicado"
+                  : dialogType === "association"
+                    ? "Associação"
+                    : ""}
             </DialogTitle>
             <DialogDescription className="text-slate-400">
-              {dialogType === "category"
-                ? "Preencha os dados da categoria"
-                : dialogType === "nominee"
-                  ? "Preencha os dados do indicado"
-                  : "Selecione as categorias para associar ao indicado"}
+              {dialogType === "phase1-results"
+                ? "Selecione os finalistas para a Fase 2"
+                : dialogType === "category"
+                  ? "Preencha os dados da categoria"
+                  : dialogType === "nominee"
+                    ? "Preencha os dados do indicado"
+                    : "Selecione as categorias para associar ao indicado"}
             </DialogDescription>
           </DialogHeader>
 
-          {dialogType === "category" ? (
+          {dialogType === "phase1-results" ? (
+            <Phase1ResultsDialog
+              results={phaseResults}
+              category={selectedCategoryForResults}
+              onSelectFinalists={selectFinalists}
+              onClose={() => setIsDialogOpen(false)}
+            />
+          ) : dialogType === "category" ? (
             <form onSubmit={handleCategorySubmit} className="space-y-4">
               <div>
                 <Label htmlFor="category-name" className="text-slate-300">
@@ -784,16 +1040,6 @@ export default function AdminPanel() {
                 />
                 <Label htmlFor="category-active" className="text-slate-300">
                   Categoria ativa
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Switch
-                  id="category-voting"
-                  checked={categoryForm.voting_open}
-                  onCheckedChange={(checked) => setCategoryForm({ ...categoryForm, voting_open: checked })}
-                />
-                <Label htmlFor="category-voting" className="text-slate-300">
-                  Votação aberta
                 </Label>
               </div>
               <div className="flex justify-end space-x-2">
@@ -866,7 +1112,7 @@ export default function AdminPanel() {
                 <p className="text-sm text-white">{nominees.find((n) => n.id === associationForm.nominee_id)?.name}</p>
               </div>
               <div>
-                <Label className="text-slate-300">Categorias</Label>
+                <Label className="text-slate-300">Categorias (Finalista)</Label>
                 <div className="space-y-2 max-h-60 overflow-y-auto">
                   {categories.map((category) => (
                     <div key={category.id} className="flex items-center space-x-2">
@@ -894,6 +1140,98 @@ export default function AdminPanel() {
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+// Component for Phase 1 Results Dialog
+function Phase1ResultsDialog({
+  results,
+  category,
+  onSelectFinalists,
+  onClose,
+}: {
+  results: Phase1Result[]
+  category: Category | null
+  onSelectFinalists: (nominees: string[]) => void
+  onClose: () => void
+}) {
+  const [selectedNominees, setSelectedNominees] = useState<string[]>([])
+
+  const handleNomineeToggle = (nomineeId: string) => {
+    setSelectedNominees((prev) =>
+      prev.includes(nomineeId) ? prev.filter((id) => id !== nomineeId) : [...prev, nomineeId],
+    )
+  }
+
+  const handleSelectTop4 = () => {
+    const top4 = results.slice(0, 4).map((r) => r.nominee_id)
+    setSelectedNominees(top4)
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="text-center">
+        <h3 className="text-xl font-bold text-white mb-2">Resultados da Fase 1 - {category?.name}</h3>
+        <p className="text-slate-400">Selecione os finalistas que irão para a Fase 2</p>
+      </div>
+
+      <div className="flex justify-between items-center">
+        <Button onClick={handleSelectTop4} className="btn-secondary">
+          Selecionar Top 4
+        </Button>
+        <Badge className="bg-blue-500/20 text-blue-400">{selectedNominees.length} selecionados</Badge>
+      </div>
+
+      <div className="grid gap-3 max-h-96 overflow-y-auto">
+        {results.map((result, index) => (
+          <Card key={result.nominee_id} className="dark-card">
+            <CardContent className="p-4">
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-slate-700">
+                  {index === 0 && <Crown className="h-5 w-5 text-yellow-400" />}
+                  {index === 1 && <Medal className="h-5 w-5 text-gray-400" />}
+                  {index === 2 && <Award className="h-5 w-5 text-orange-400" />}
+                  {index > 2 && <span className="text-slate-300 font-bold">#{index + 1}</span>}
+                </div>
+
+                {result.nominee_image && (
+                  <Image
+                    src={result.nominee_image || "/placeholder.svg"}
+                    alt={result.nominee_name}
+                    width={60}
+                    height={60}
+                    className="w-15 h-15 object-cover rounded"
+                  />
+                )}
+
+                <div className="flex-1">
+                  <h4 className="font-semibold text-white">{result.nominee_name}</h4>
+                  <Badge className="bg-purple-500/20 text-purple-400">{result.vote_count} indicações</Badge>
+                </div>
+
+                <Checkbox
+                  checked={selectedNominees.includes(result.nominee_id)}
+                  onCheckedChange={() => handleNomineeToggle(result.nominee_id)}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <div className="flex justify-end space-x-2">
+        <Button onClick={onClose} className="btn-secondary">
+          Cancelar
+        </Button>
+        <Button
+          onClick={() => onSelectFinalists(selectedNominees)}
+          disabled={selectedNominees.length === 0}
+          className="btn-primary"
+        >
+          Selecionar {selectedNominees.length} Finalistas
+        </Button>
+      </div>
     </div>
   )
 }
