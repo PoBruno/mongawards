@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Trophy, Crown, Medal, Award, ArrowLeft, TrendingUp, Users, BarChart3, Eye, Vote } from "lucide-react"
+import { Eye, EyeOff, Trophy, Crown, Medal, Award, ArrowLeft, TrendingUp, Users, BarChart3, Vote } from "lucide-react"
 import {
   supabase,
   type Category,
@@ -28,6 +28,7 @@ export default function ResultsPage() {
   const [individualVotes, setIndividualVotes] = useState<IndividualVote[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("overview")
+  const [revealedCategories, setRevealedCategories] = useState<string[]>([])
   const router = useRouter()
 
   useEffect(() => {
@@ -64,7 +65,7 @@ export default function ResultsPage() {
       } else {
         const categories = categoriesData || []
         setAllCategories(categories)
-        setClosedCategories(categories.filter((c) => !c.voting_open))
+        setClosedCategories(categories.filter((c) => c.is_finalized))
         setOpenCategories(categories.filter((c) => c.voting_open))
       }
 
@@ -112,6 +113,12 @@ export default function ResultsPage() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const toggleRevealCategory = (categoryId: string) => {
+    setRevealedCategories((prev) =>
+      prev.includes(categoryId) ? prev.filter((id) => id !== categoryId) : [...prev, categoryId],
+    )
   }
 
   const getCategoryNominees = (categoryId: string): NomineeWithVotes[] => {
@@ -170,11 +177,11 @@ export default function ResultsPage() {
           <CardContent>
             <Trophy className="h-16 w-16 text-blue-400 mx-auto mb-4" />
             <h3 className="text-xl font-semibold text-white mb-2">
-              {showWinners ? "Nenhum resultado disponível" : "Nenhuma votação em andamento"}
+              {showWinners ? "Nenhuma categoria finalizada" : "Nenhuma votação em andamento"}
             </h3>
             <p className="text-slate-400">
               {showWinners
-                ? "Os resultados aparecerão aqui quando as votações das categorias forem encerradas."
+                ? "Os resultados aparecerão aqui quando as categorias forem finalizadas."
                 : "Não há categorias com votação aberta no momento."}
             </p>
           </CardContent>
@@ -185,8 +192,12 @@ export default function ResultsPage() {
     return (
       <div className="space-y-6">
         {categories.map((category) => {
+          const isRevealed = revealedCategories.includes(category.id)
           const categoryNominees = getCategoryNominees(category.id)
           const totalCategoryVotes = categoryNominees.reduce((sum, nominee) => sum + nominee.category_votes, 0)
+
+          // Alphabetical sort for hidden view
+          const alphabeticallySortedNominees = [...categoryNominees].sort((a, b) => a.name.localeCompare(b.name))
 
           return (
             <Card key={category.id} className="dark-card hover-lift">
@@ -205,9 +216,15 @@ export default function ResultsPage() {
                 <CardTitle className="text-2xl text-white flex items-center justify-center gap-2 flex-wrap">
                   <Trophy className="h-6 w-6 text-blue-400" />
                   {category.name}
-                  <Badge className={category.voting_open ? "status-open" : "status-closed"}>
-                    {category.voting_open ? "🟢 Votação Aberta" : "🔴 Votação Encerrada"}
+                  <Badge className={category.is_finalized ? "status-closed" : "status-open"}>
+                    {category.is_finalized ? "🔴 Finalizada" : "🟢 Votação Aberta"}
                   </Badge>
+                  {showWinners && (
+                    <Button onClick={() => toggleRevealCategory(category.id)} size="sm" className="btn-secondary">
+                      {isRevealed ? <EyeOff className="h-4 w-4 mr-2" /> : <Eye className="h-4 w-4 mr-2" />}
+                      {isRevealed ? "Ocultar" : "Revelar"}
+                    </Button>
+                  )}
                 </CardTitle>
                 {category.description && (
                   <CardDescription className="text-slate-400">{category.description}</CardDescription>
@@ -223,13 +240,30 @@ export default function ResultsPage() {
                     <Users className="h-12 w-12 text-slate-400 mx-auto mb-2" />
                     <p className="text-slate-400">Nenhum indicado nesta categoria.</p>
                   </div>
+                ) : showWinners && !isRevealed ? (
+                  // Hidden results view
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {alphabeticallySortedNominees.map((nominee) => (
+                      <Card key={nominee.id} className="dark-card p-4 text-center">
+                        <Image
+                          src={nominee.image || "/placeholder.svg"}
+                          alt={nominee.name}
+                          width={150}
+                          height={150}
+                          className="w-full aspect-square object-cover rounded-lg mx-auto mb-2"
+                        />
+                        <h4 className="font-semibold text-white text-sm">{nominee.name}</h4>
+                      </Card>
+                    ))}
+                  </div>
                 ) : (
+                  // Revealed results view (or default view for non-official results)
                   <div className="space-y-3">
                     {categoryNominees.map((nominee, index) => {
                       const position = index + 1
                       const percentage =
                         totalCategoryVotes > 0 ? (nominee.category_votes / totalCategoryVotes) * 100 : 0
-                      const isWinner = position === 1 && !category.voting_open
+                      const isWinner = position === 1 && showWinners
 
                       return (
                         <Card
@@ -237,19 +271,17 @@ export default function ResultsPage() {
                           className={`dark-card border-2 ${
                             isWinner
                               ? "border-yellow-400/50 bg-yellow-400/5"
-                              : position === 2 && !category.voting_open
+                              : position === 2 && showWinners
                                 ? "border-gray-400/50 bg-gray-400/5"
-                                : position === 3 && !category.voting_open
+                                : position === 3 && showWinners
                                   ? "border-orange-400/50 bg-orange-400/5"
-                                  : category.voting_open
-                                    ? "border-blue-400/30"
-                                    : "border-slate-600/30"
+                                  : "border-slate-600/30"
                           }`}
                         >
                           <CardContent className="p-4">
                             <div className="flex items-center space-x-4">
                               <div className="flex items-center justify-center w-10 h-10 rounded-full bg-slate-700">
-                                {showWinners && !category.voting_open ? (
+                                {showWinners ? (
                                   getPositionIcon(position)
                                 ) : (
                                   <div className="text-sm font-bold text-slate-300">#{position}</div>
@@ -271,7 +303,7 @@ export default function ResultsPage() {
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 mb-1 flex-wrap">
                                   <h4 className="font-bold text-white">{nominee.name}</h4>
-                                  {showWinners && !category.voting_open && position <= 3 && (
+                                  {showWinners && position <= 3 && (
                                     <Badge
                                       className={
                                         position === 1
@@ -284,7 +316,6 @@ export default function ResultsPage() {
                                       {position === 1 ? "🥇 1º Lugar" : position === 2 ? "🥈 2º Lugar" : "🥉 3º Lugar"}
                                     </Badge>
                                   )}
-                                  {category.voting_open && <Badge className="status-open">Em votação</Badge>}
                                 </div>
                                 {nominee.description && (
                                   <p className="text-sm text-slate-400 mb-2">{nominee.description}</p>
