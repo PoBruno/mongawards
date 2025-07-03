@@ -115,15 +115,23 @@ export default function ResultsPage() {
   }
 
   const getCategoryNominees = (categoryId: string): NomineeWithVotes[] => {
+    const category = allCategories.find((c) => c.id === categoryId)
+    if (!category) return []
+
+    const phase = category.phase_2_active ? 2 : 1
+
     const associatedNominees = nomineeCategories
       .filter((nc) => nc.category_id === categoryId)
       .map((nc) => {
         const nominee = nominees.find((n) => n.id === nc.nominee_id)
         if (!nominee) return null
 
-        // Count votes for this nominee in this specific category
+        // Count votes for this nominee in this specific category and phase
         const categoryVotes = individualVotes.filter(
-          (vote) => vote.nominee_id === nominee.id && vote.category_id === categoryId,
+          (vote) =>
+            vote.nominee_id === nominee.id &&
+            vote.category_id === categoryId &&
+            vote.phase === phase,
         ).length
 
         return {
