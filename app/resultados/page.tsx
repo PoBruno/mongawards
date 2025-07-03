@@ -242,7 +242,7 @@ export default function ResultsPage() {
                   </div>
                 ) : showWinners && !isRevealed ? (
                   // Hidden results view
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className={`grid grid-cols-2 md:grid-cols-4 gap-4 transition-all duration-500 ease-in-out ${isRevealed ? 'opacity-0 h-0 overflow-hidden' : 'opacity-100 h-auto'}`}>
                     {alphabeticallySortedNominees.map((nominee) => (
                       <Card key={nominee.id} className="dark-card p-4 text-center">
                         <Image
@@ -258,7 +258,7 @@ export default function ResultsPage() {
                   </div>
                 ) : (
                   // Revealed results view (or default view for non-official results)
-                  <div className="space-y-3">
+                  <div className={`space-y-3 transition-all duration-500 ease-in-out ${isRevealed ? 'opacity-100 h-auto' : 'opacity-0 h-0 overflow-hidden'}`}>
                     {categoryNominees.map((nominee, index) => {
                       const position = index + 1
                       const percentage =
