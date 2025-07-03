@@ -118,7 +118,11 @@ export default function ResultsPage() {
     const category = allCategories.find((c) => c.id === categoryId)
     if (!category) return []
 
-    const phase = category.phase_2_active ? 2 : 1
+        // Logic to determine the correct phase for vote counting
+    // If phase_2_active is true, it's definitely phase 2.
+    // If the category is finalized (is_finalized is true), it means voting is completely over,
+    // and we should show the results for the last active phase, which is phase 2.
+    const phase = category.phase_2_active || category.is_finalized ? 2 : 1
 
     const associatedNominees = nomineeCategories
       .filter((nc) => nc.category_id === categoryId)
